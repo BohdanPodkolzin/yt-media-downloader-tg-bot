@@ -9,29 +9,45 @@ public static class Downloader
 {
     private static readonly YoutubeClient YoutubeClient = new();
 
-    public static async Task<string> DownloadMedia(IConfiguration configuration, string url, CancellationToken cancellationToken, bool isVideo = true)
+    public static async Task<string> DownloadMedia(IConfiguration configuration, string url, CancellationToken cancellationToken, bool isVideo = true, bool selectLowestBitrate = false)
     {
         var fileName = $"{url.Split('=')[1]}";
-
         var streamManifest = await YoutubeClient.Videos.Streams.GetManifestAsync(url, cancellationToken);
 
-        // audio downloader
-        var audioStreamInfo = streamManifest.GetAudioStreams().GetWithHighestBitrate();
+        var audioStreams = streamManifest.GetAudioStreams();
+        IStreamInfo selectedAudioStream = null;
+
+        if (selectLowestBitrate)
+        {
+            selectedAudioStream = audioStreams
+                .OrderBy(s => s.Bitrate)
+                .FirstOrDefault();
+        }
+        else
+        {
+            selectedAudioStream = audioStreams
+                .OrderByDescending(s => s.Bitrate)
+                .FirstOrDefault();
+        }
+
+        if (selectedAudioStream == null)
+        {
+            throw new Exception("No audio stream found.");
+        }
+
         var audioFilePath = Path.Combine(configuration["MediaLocalPath"], $"{fileName}_aud.mp4");
 
-        await YoutubeClient.Videos.Streams.DownloadAsync(audioStreamInfo, audioFilePath, cancellationToken: cancellationToken);
-            
+        await YoutubeClient.Videos.Streams.DownloadAsync(selectedAudioStream, audioFilePath, null, cancellationToken);
+
         if (!isVideo) return audioFilePath;
 
-        // video downloader
         var videoStreamInfo = streamManifest.GetVideoStreams().First(s => s.VideoQuality.Label == "480p");
         var videoFilePath = Path.Combine(configuration["MediaLocalPath"], $"{fileName}_vid.mp4");
 
-        await YoutubeClient.Videos.Streams.DownloadAsync(videoStreamInfo, videoFilePath, cancellationToken: cancellationToken);
-
+        await YoutubeClient.Videos.Streams.DownloadAsync(videoStreamInfo, videoFilePath, null, cancellationToken);
 
         var finalFilePath = Path.Combine(configuration["MediaLocalPath"], $"{fileName}.mp4");
-            
+
         if (File.Exists(finalFilePath)) return finalFilePath;
 
         await MergeAudioVideoAsync(configuration, audioFilePath, videoFilePath, finalFilePath);
@@ -48,7 +64,7 @@ public static class Downloader
         var startInfo = new ProcessStartInfo
         {
             FileName = ffmpegPath,
-            Arguments = $"-i \"{videoPath}\" -i \"{audioPath}\" -c:v copy -c:a aac -strict experimental \"{outputPath}\"",
+            Arguments = $"-i \"{videoPath}\" -i \"{audioPath}\" -c:v copy -c:a aac b:a  -strict experimental \"{outputPath}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -63,6 +79,7 @@ public static class Downloader
         _ = ReadStreamAsync(process.StandardError);
 
         await Task.Run(() => process.WaitForExit());
+        
     }
 
     private static async Task ReadStreamAsync(StreamReader reader)
