@@ -34,6 +34,7 @@ namespace yt_downloader
             var chatIdCallback = update.CallbackQuery.Message.Chat.Id;
 
             var callbackData = update.CallbackQuery.Data?.Split('|');
+
             if (callbackData is not { Length: 2 }) return;
 
             var formatChoice = callbackData[0];
@@ -89,7 +90,7 @@ namespace yt_downloader
                 new[]
                 {
                     new[] { InlineKeyboardButton.WithCallbackData(".mp3", $"mp3_choice|{url}") },
-                    new[] { InlineKeyboardButton.WithCallbackData(".mp4", $"mp4_choice|{url}") }
+                    [InlineKeyboardButton.WithCallbackData(".mp4", $"mp4_choice|{url}")]
                 });
         }
     }
